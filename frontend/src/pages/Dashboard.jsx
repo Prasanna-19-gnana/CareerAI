@@ -3,10 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import Select from 'react-select';
-import { LogOut, Map, ArrowRight, CheckCircle2, Circle, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle, BrainCircuit } from 'lucide-react';
+import { LogOut, Map, ArrowRight, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle, BrainCircuit, Edit3, CheckCircle2 } from 'lucide-react';
 import { careerProfiles, inDemandCareers2026 } from '../data/careerProfiles';
+import { calculateSkillGap } from '../utils/skillUtils';
+import SkillMultiSelect from '../components/SkillMultiSelect';
+import SkillGapBadges from '../components/SkillGapBadges';
+import UpdateSkillsModal from '../components/UpdateSkillsModal';
 
-const basicSkillsOptions = ["Python", "Java", "SQL", "React", "Communication", "Leadership", "Excel", "Machine Learning", "UI/UX", "Cloud", "Cybersecurity", "C++", "JavaScript", "HTML/CSS", "Data Visualization", "Pandas", "Node.js", "Docker"].map(s => ({value: s, label: s}));
 const basicStrengthsOptions = ["Problem Solving", "Creativity", "Analytical Thinking", "Teamwork", "Leadership", "Communication", "Research", "Time Management", "Adaptability"].map(s => ({value: s, label: s}));
 const basicWeaknessesOptions = ["Public Speaking", "DSA", "Confidence", "Resume Building", "Interview Skills", "Practical Projects", "English Communication"].map(s => ({value: s, label: s}));
 const basicDomainsOptions = ["AI/ML", "Data Science", "Web Development", "Cybersecurity", "Cloud Computing", "UI/UX Design", "Business Analytics", "Product Management", "DevOps"].map(s => ({value: s, label: s}));
@@ -56,6 +59,9 @@ export default function Dashboard() {
     domains: []
   });
 
+  // Modal state
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   useEffect(() => {
     checkProfile();
     const storedProfile = localStorage.getItem('basicProfileData');
@@ -73,7 +79,20 @@ export default function Dashboard() {
       const userData = res.data;
       if (userData.recommendations && userData.recommendations.length > 0) {
         setHasCompletedAssessment(true);
-        setRecommendations(userData.recommendations);
+        
+        // Ensure recommendations have current/missing skills parsed correctly if basic profile exists
+        const storedProfile = localStorage.getItem('basicProfileData');
+        const parsedProfile = storedProfile ? JSON.parse(storedProfile) : null;
+        
+        const enhancedRecs = userData.recommendations.map(rec => {
+          if (parsedProfile && parsedProfile.skills) {
+            const gap = calculateSkillGap(parsedProfile.skills, rec.required_skills);
+            return { ...rec, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills };
+          }
+          return rec;
+        });
+
+        setRecommendations(enhancedRecs);
       } else {
         setHasCompletedAssessment(false);
       }
@@ -90,16 +109,15 @@ export default function Dashboard() {
   };
 
   const analyzeProfile = (profile) => {
-    const rawSkills = profile.skills.map(s => s.value);
+    const rawSkills = profile.skills.map(s => typeof s === 'string' ? s : s.value);
     const rawStrengths = profile.strengths.map(s => s.value);
     const rawDomains = profile.domains.map(s => s.value);
 
     const suggestions = careerProfiles.map(career => {
-      const skillMatch = career.requiredSkills.filter(s => rawSkills.includes(s));
-      const missingSkills = career.requiredSkills.filter(s => !rawSkills.includes(s));
+      const gap = calculateSkillGap(rawSkills, career.requiredSkills);
       const strengthMatch = career.relatedStrengths.filter(s => rawStrengths.includes(s));
       
-      let score = (skillMatch.length * 2.5) + (strengthMatch.length * 1.5);
+      let score = (gap.matchingSkills.length * 2.5) + (strengthMatch.length * 1.5);
       if (career.domains.some(d => rawDomains.includes(d))) score += 4;
       
       const maxPossible = (career.requiredSkills.length * 2.5) + (career.relatedStrengths.length * 1.5) + 4;
@@ -108,8 +126,8 @@ export default function Dashboard() {
       return {
         ...career,
         matchPercentage,
-        current_skills: skillMatch,
-        missing_skills: missingSkills
+        current_skills: gap.matchingSkills,
+        missing_skills: gap.missingSkills
       };
     }).sort((a,b) => b.matchPercentage - a.matchPercentage).slice(0, 3);
     
@@ -122,36 +140,82 @@ export default function Dashboard() {
       alert("Please select at least some skills and domains to proceed.");
       return;
     }
-    localStorage.setItem('basicProfileData', JSON.stringify(basicProfileForm));
+    
+    // Ensure basicProfileForm.skills is standardized to objects for react-select before saving
+    // but in localStorage we save the array of strings for skills to simplify it.
+    // Actually, SkillMultiSelect expects/returns an array of strings.
+    const normalizedForm = {
+      ...basicProfileForm,
+      // basicSkillsOptions was originally passing array of objects.
+      // We updated SkillMultiSelect to just pass array of strings.
+      skills: Array.isArray(basicProfileForm.skills) 
+        ? basicProfileForm.skills.map(s => typeof s === 'string' ? s : s.value)
+        : []
+    };
+
+    localStorage.setItem('basicProfileData', JSON.stringify(normalizedForm));
+    setBasicProfileForm(normalizedForm);
     setBasicProfileCompleted(true);
-    analyzeProfile(basicProfileForm);
+    analyzeProfile(normalizedForm);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleUpdateSkills = (newSkills) => {
+    const updatedProfile = { ...basicProfileForm, skills: newSkills };
+    setBasicProfileForm(updatedProfile);
+    localStorage.setItem('basicProfileData', JSON.stringify(updatedProfile));
+    
+    // Recalculate everything
+    analyzeProfile(updatedProfile);
+    
+    // If roadmap is open, update it
+    if (roadmapData && roadmapData.requiredSkills) {
+      const gap = calculateSkillGap(newSkills, roadmapData.requiredSkills);
+      setRoadmapData({ ...roadmapData, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills });
+    } else if (roadmapData && roadmapData.required_skills) {
+      // For AI matches, it uses required_skills
+      const gap = calculateSkillGap(newSkills, roadmapData.required_skills);
+      setRoadmapData({ ...roadmapData, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills });
+    }
+
+    // If assessment is completed, refresh recommendations state
+    if (hasCompletedAssessment) {
+      const updatedRecs = recommendations.map(rec => {
+        const gap = calculateSkillGap(newSkills, rec.required_skills);
+        return { ...rec, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills };
+      });
+      setRecommendations(updatedRecs);
+    }
   };
 
   const handleSelectCareer = (careerObj) => {
     setSelectedCareer(careerObj.title);
     
-    if (basicProfileCompleted && !hasCompletedAssessment && careerObj.requiredSkills) {
-      const rawSkills = basicProfileForm.skills.map(s => s.value);
-      const skillMatch = careerObj.requiredSkills.filter(s => rawSkills.includes(s));
-      const missingSkills = careerObj.requiredSkills.filter(s => !rawSkills.includes(s));
-      
+    if (basicProfileCompleted && careerObj.requiredSkills) {
+      const gap = calculateSkillGap(basicProfileForm.skills, careerObj.requiredSkills);
       setRoadmapData({
         ...careerObj,
-        current_skills: skillMatch,
-        missing_skills: missingSkills
+        current_skills: gap.matchingSkills,
+        missing_skills: gap.missingSkills
       });
     } else {
       setRoadmapData(careerObj);
     }
   };
 
-  const fetchAIRoadmap = async (careerTitle) => {
-    setSelectedCareer(careerTitle);
+  const fetchAIRoadmap = async (careerObj) => {
+    setSelectedCareer(careerObj.title);
     setLoadingRoadmap(true);
     try {
-      const res = await api.get(`/assessment/roadmap?target_career=${encodeURIComponent(careerTitle)}`);
-      setRoadmapData(res.data);
+      const res = await api.get(`/assessment/roadmap?target_career=${encodeURIComponent(careerObj.title)}`);
+      
+      let finalData = res.data;
+      if (basicProfileCompleted) {
+         // Apply skill gap calculation to AI response if user has set skills
+         const gap = calculateSkillGap(basicProfileForm.skills, careerObj.required_skills);
+         finalData = { ...finalData, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills };
+      }
+      setRoadmapData(finalData);
     } catch (err) {
       console.error(err);
       alert('Failed to load roadmap.');
@@ -169,6 +233,14 @@ export default function Dashboard() {
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       
+      {/* Modal */}
+      <UpdateSkillsModal 
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        currentSkills={basicProfileForm.skills}
+        onSave={handleUpdateSkills}
+      />
+
       {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-sm">
         <div className="mb-4 sm:mb-0">
@@ -212,9 +284,9 @@ export default function Dashboard() {
               <form onSubmit={handleBasicProfileSubmit} className="space-y-5">
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1.5">Known Skills</label>
-                  <Select 
-                    isMulti options={basicSkillsOptions} styles={customSelectStyles} placeholder="Search skills (e.g. Python, React)..."
-                    value={basicProfileForm.skills} onChange={(val) => setBasicProfileForm({...basicProfileForm, skills: val})}
+                  <SkillMultiSelect 
+                    value={basicProfileForm.skills} 
+                    onChange={(val) => setBasicProfileForm({...basicProfileForm, skills: val})}
                   />
                 </div>
                 <div>
@@ -364,7 +436,7 @@ export default function Dashboard() {
                 {recommendations.map((career, idx) => (
                   <div 
                     key={idx}
-                    onClick={() => fetchAIRoadmap(career.title)}
+                    onClick={() => fetchAIRoadmap(career)}
                     className={`p-5 rounded-2xl cursor-pointer transition-all border ${selectedCareer === career.title ? 'bg-indigo-50 border-indigo-200 shadow-md ring-2 ring-indigo-500 ring-opacity-50' : 'bg-white/60 border-white/50 hover:bg-white/80 shadow-sm'}`}
                   >
                     <div className="flex justify-between items-start mb-2">
@@ -378,6 +450,15 @@ export default function Dashboard() {
                       <span className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-md"><DollarSign size={14} className="mr-0.5"/> {career.salary_range}</span>
                       <span className="flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded-md"><TrendingUp size={14} className="mr-1"/> {career.future_demand}</span>
                     </div>
+                    
+                    {career.missing_skills && career.missing_skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        {career.missing_skills.slice(0,3).map((ms, i) => (
+                          <span key={i} className="text-[10px] font-medium bg-rose-50 text-rose-600 border border-rose-100 px-2 py-0.5 rounded">Miss: {ms}</span>
+                        ))}
+                      </div>
+                    )}
+
                     <button className="text-sm text-indigo-600 font-medium flex items-center hover:text-indigo-800 transition">
                       View Personalized Roadmap <ArrowRight size={16} className="ml-1"/>
                     </button>
@@ -401,16 +482,25 @@ export default function Dashboard() {
             <div className="bg-white/80 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/50 shadow-xl h-full relative overflow-hidden">
               <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
 
-              <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8 pb-6 border-b border-slate-200 relative z-10">
-                <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl shadow-inner">
-                  <Briefcase size={28} />
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-8 pb-6 border-b border-slate-200 relative z-10">
+                <div className="flex items-center space-x-4 mb-4 sm:mb-0">
+                  <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl shadow-inner">
+                    <Briefcase size={28} />
+                  </div>
+                  <div>
+                    <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">{roadmapData.title || selectedCareer}</h2>
+                    <p className="text-slate-500 font-medium mt-1">
+                      {hasCompletedAssessment ? "Your Personalized AI Roadmap" : "Skill-Based Career Roadmap"}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">{roadmapData.title || selectedCareer}</h2>
-                  <p className="text-slate-500 font-medium mt-1">
-                    {hasCompletedAssessment ? "Your Personalized AI Roadmap" : "Skill-Based Career Roadmap"}
-                  </p>
-                </div>
+
+                <button 
+                  onClick={() => setIsModalOpen(true)}
+                  className="flex items-center px-4 py-2 bg-white border border-indigo-200 text-indigo-700 rounded-xl font-medium shadow-sm hover:bg-indigo-50 hover:border-indigo-300 transition"
+                >
+                  <Edit3 size={16} className="mr-2" /> Update Skills
+                </button>
               </div>
 
               <div className="relative z-10">
@@ -421,32 +511,11 @@ export default function Dashboard() {
                   </p>
                 )}
 
-                {/* Skill Gap Analysis */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
-                  {roadmapData.current_skills && roadmapData.current_skills.length > 0 && (
-                    <div className="p-5 bg-gradient-to-br from-emerald-50 to-green-50 rounded-2xl border border-green-100 shadow-sm">
-                      <h4 className="font-bold text-green-800 mb-3 flex items-center">
-                        <CheckCircle2 size={18} className="mr-2"/> Skills You Have
-                      </h4>
-                      <div className="flex flex-wrap gap-2">
-                        {roadmapData.current_skills.map((skill, i) => (
-                          <span key={i} className="px-3 py-1 bg-white text-green-700 border border-green-200 rounded-lg text-sm font-medium shadow-sm">{skill}</span>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  
-                  <div className={`p-5 bg-gradient-to-br from-orange-50 to-rose-50 rounded-2xl border border-orange-100 shadow-sm ${(!roadmapData.current_skills || roadmapData.current_skills.length === 0) ? 'sm:col-span-2' : ''}`}>
-                    <h4 className="font-bold text-rose-800 mb-3 flex items-center">
-                      <Circle size={18} className="mr-2 text-rose-500"/> Skills to Learn
-                    </h4>
-                    <div className="flex flex-wrap gap-2">
-                      {roadmapData.missing_skills?.map((skill, i) => (
-                        <span key={i} className="px-3 py-1 bg-white text-rose-700 border border-rose-200 rounded-lg text-sm font-medium shadow-sm">{skill}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                {/* Reusable Skill Gap Badges */}
+                <SkillGapBadges 
+                  matchingSkills={roadmapData.current_skills} 
+                  missingSkills={roadmapData.missing_skills} 
+                />
 
                 <h3 className="text-xl font-bold text-slate-800 mb-6">Learning Roadmap</h3>
 

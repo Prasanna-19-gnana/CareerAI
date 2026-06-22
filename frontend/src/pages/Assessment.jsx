@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { BrainCircuit, BookOpen, Code, Briefcase, Heart, Target } from 'lucide-react';
 import Select from 'react-select';
+import SkillMultiSelect from '../components/SkillMultiSelect';
 
 const academicBackgroundOptions = [
   "B.Tech / B.E. Computer Science", "B.Tech Information Technology", "B.Tech Data Science", 
@@ -82,12 +83,12 @@ export default function Assessment() {
   const [selectedWeaknesses, setSelectedWeaknesses] = useState([]);
   const [formData, setFormData] = useState({
     academic_background: academicBackgroundOptions[0],
-    known_skills: '',
     interests: '',
     work_preference: workPreferenceOptions[0],
     preferred_domain: preferredDomainOptions[0],
     career_goals: careerGoalsOptions[0]
   });
+  const [knownSkills, setKnownSkills] = useState([]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -97,10 +98,10 @@ export default function Assessment() {
     e.preventDefault();
     setLoading(true);
     
-    // Process skills and interests into arrays
+    // Process interests into arrays and append skills
     const payload = {
       ...formData,
-      known_skills: formData.known_skills.split(',').map(s => s.trim()).filter(Boolean),
+      known_skills: knownSkills,
       interests: formData.interests.split(',').map(s => s.trim()).filter(Boolean),
       strengths: selectedStrengths.map(s => s.value).join(', '),
       weaknesses: selectedWeaknesses.map(s => s.value).join(', ')
@@ -169,13 +170,12 @@ export default function Assessment() {
 
             <div>
               <label className="flex items-center text-sm font-medium text-slate-700 mb-2">
-                <Code size={16} className="mr-2 text-teal-500"/> Known Skills (comma separated)
+                <Code size={16} className="mr-2 text-teal-500"/> Known Skills
               </label>
-              <textarea 
-                name="known_skills" required rows="2"
-                value={formData.known_skills} onChange={handleChange}
-                placeholder="Python, React, Basic SQL, Communication"
-                className="w-full px-4 py-3 border border-slate-200 rounded-xl focus:ring-2 focus:ring-teal-500 outline-none bg-white/50 resize-none"
+              <SkillMultiSelect 
+                value={knownSkills}
+                onChange={setKnownSkills}
+                placeholder="Search or select skills (e.g., Python, React)..."
               />
             </div>
 
