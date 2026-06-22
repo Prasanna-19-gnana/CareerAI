@@ -5,7 +5,7 @@ import { AuthContext } from '../context/AuthContext';
 import Select from 'react-select';
 import { LogOut, Map, ArrowRight, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle, BrainCircuit, Edit3, CheckCircle2 } from 'lucide-react';
 import { careerProfiles, inDemandCareers2026 } from '../data/careerProfiles';
-import { calculateSkillGap } from '../utils/skillUtils';
+import { calculateSkillGap, generatePersonalizedRoadmap } from '../utils/skillUtils';
 import SkillMultiSelect from '../components/SkillMultiSelect';
 import SkillGapBadges from '../components/SkillGapBadges';
 import UpdateSkillsModal from '../components/UpdateSkillsModal';
@@ -62,16 +62,31 @@ export default function Dashboard() {
   // Modal state
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  const getProfileKey = () => {
+    if (!user) return null;
+    return `careerai_profile_${user.id || user.email}`;
+  };
+
   useEffect(() => {
     checkProfile();
-    const storedProfile = localStorage.getItem('basicProfileData');
-    if (storedProfile) {
-      const parsed = JSON.parse(storedProfile);
-      setBasicProfileForm(parsed);
-      setBasicProfileCompleted(true);
-      analyzeProfile(parsed);
-    }
   }, []);
+
+  useEffect(() => {
+    const profileKey = getProfileKey();
+    if (profileKey) {
+      const storedProfile = localStorage.getItem(profileKey);
+      if (storedProfile) {
+        const parsed = JSON.parse(storedProfile);
+        setBasicProfileForm(parsed);
+        setBasicProfileCompleted(true);
+        analyzeProfile(parsed);
+      } else {
+        setBasicProfileForm({ skills: [], strengths: [], weaknesses: [], domains: [] });
+        setBasicProfileCompleted(false);
+        setSuggestedCareers([]);
+      }
+    }
+  }, [user]);
 
   const checkProfile = async () => {
     try {
@@ -81,7 +96,8 @@ export default function Dashboard() {
         setHasCompletedAssessment(true);
         
         // Ensure recommendations have current/missing skills parsed correctly if basic profile exists
-        const storedProfile = localStorage.getItem('basicProfileData');
+        const profileKey = `careerai_profile_${userData.id || userData.email}`;
+        const storedProfile = localStorage.getItem(profileKey);
         const parsedProfile = storedProfile ? JSON.parse(storedProfile) : null;
         
         const enhancedRecs = userData.recommendations.map(rec => {
@@ -141,19 +157,18 @@ export default function Dashboard() {
       return;
     }
     
-    // Ensure basicProfileForm.skills is standardized to objects for react-select before saving
-    // but in localStorage we save the array of strings for skills to simplify it.
-    // Actually, SkillMultiSelect expects/returns an array of strings.
     const normalizedForm = {
       ...basicProfileForm,
-      // basicSkillsOptions was originally passing array of objects.
-      // We updated SkillMultiSelect to just pass array of strings.
       skills: Array.isArray(basicProfileForm.skills) 
         ? basicProfileForm.skills.map(s => typeof s === 'string' ? s : s.value)
         : []
     };
 
-    localStorage.setItem('basicProfileData', JSON.stringify(normalizedForm));
+    const profileKey = getProfileKey();
+    if (profileKey) {
+      localStorage.setItem(profileKey, JSON.stringify(normalizedForm));
+    }
+    
     setBasicProfileForm(normalizedForm);
     setBasicProfileCompleted(true);
     analyzeProfile(normalizedForm);
@@ -163,15 +178,19 @@ export default function Dashboard() {
   const handleUpdateSkills = (newSkills) => {
     const updatedProfile = { ...basicProfileForm, skills: newSkills };
     setBasicProfileForm(updatedProfile);
-    localStorage.setItem('basicProfileData', JSON.stringify(updatedProfile));
+    
+    const profileKey = getProfileKey();
+    if (profileKey) {
+      localStorage.setItem(profileKey, JSON.stringify(updatedProfile));
+    }
     
     // Recalculate everything
     analyzeProfile(updatedProfile);
     
     // If roadmap is open, update it
     if (roadmapData && roadmapData.requiredSkills) {
-      const gap = calculateSkillGap(newSkills, roadmapData.requiredSkills);
-      setRoadmapData({ ...roadmapData, current_skills: gap.matchingSkills, missing_skills: gap.missingSkills });
+      const regenerated = generatePersonalizedRoadmap(updatedProfile, roadmapData);
+      setRoadmapData({ ...roadmapData, ...regenerated });
     } else if (roadmapData && roadmapData.required_skills) {
       // For AI matches, it uses required_skills
       const gap = calculateSkillGap(newSkills, roadmapData.required_skills);
@@ -192,12 +211,8 @@ export default function Dashboard() {
     setSelectedCareer(careerObj.title);
     
     if (basicProfileCompleted && careerObj.requiredSkills) {
-      const gap = calculateSkillGap(basicProfileForm.skills, careerObj.requiredSkills);
-      setRoadmapData({
-        ...careerObj,
-        current_skills: gap.matchingSkills,
-        missing_skills: gap.missingSkills
-      });
+      const regenerated = generatePersonalizedRoadmap(basicProfileForm, careerObj);
+      setRoadmapData({ ...careerObj, ...regenerated });
     } else {
       setRoadmapData(careerObj);
     }
@@ -515,6 +530,7 @@ export default function Dashboard() {
                 <SkillGapBadges 
                   matchingSkills={roadmapData.current_skills} 
                   missingSkills={roadmapData.missing_skills} 
+                  focusAreas={roadmapData.focusAreas}
                 />
 
                 <h3 className="text-xl font-bold text-slate-800 mb-6">Learning Roadmap</h3>
