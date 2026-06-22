@@ -130,7 +130,20 @@ export default function Dashboard() {
 
   const handleSelectCareer = (careerObj) => {
     setSelectedCareer(careerObj.title);
-    setRoadmapData(careerObj);
+    
+    if (basicProfileCompleted && !hasCompletedAssessment && careerObj.requiredSkills) {
+      const rawSkills = basicProfileForm.skills.map(s => s.value);
+      const skillMatch = careerObj.requiredSkills.filter(s => rawSkills.includes(s));
+      const missingSkills = careerObj.requiredSkills.filter(s => !rawSkills.includes(s));
+      
+      setRoadmapData({
+        ...careerObj,
+        current_skills: skillMatch,
+        missing_skills: missingSkills
+      });
+    } else {
+      setRoadmapData(careerObj);
+    }
   };
 
   const fetchAIRoadmap = async (careerTitle) => {
@@ -240,9 +253,21 @@ export default function Dashboard() {
           {basicProfileCompleted && !hasCompletedAssessment && (
             <>
               <div>
-                <h2 className="text-xl font-bold text-slate-800 flex items-center mb-4">
-                  <Star className="text-indigo-500 mr-2" size={24}/> Recommended Directions
-                </h2>
+                <div className="flex justify-between items-center mb-4">
+                  <h2 className="text-xl font-bold text-slate-800 flex items-center">
+                    <Star className="text-indigo-500 mr-2" size={24}/> Recommended Directions
+                  </h2>
+                  <button 
+                    onClick={() => {
+                      setBasicProfileCompleted(false);
+                      setRoadmapData(null);
+                      setSelectedCareer(null);
+                    }}
+                    className="text-sm font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-3 py-1.5 rounded-lg transition border border-indigo-100 shadow-sm"
+                  >
+                    Edit Profile
+                  </button>
+                </div>
                 <div className="space-y-4">
                   {suggestedCareers.map((career, idx) => (
                     <div 
