@@ -4,6 +4,7 @@ import api from '../api';
 import { BrainCircuit, BookOpen, Code, Briefcase, Heart, Target } from 'lucide-react';
 import Select from 'react-select';
 import SkillMultiSelect from '../components/SkillMultiSelect';
+import { normalizeSkill } from '../utils/skillUtils';
 
 const academicBackgroundOptions = [
   "B.Tech / B.E. Computer Science", "B.Tech Information Technology", "B.Tech Data Science", 
@@ -99,9 +100,10 @@ export default function Assessment() {
     setLoading(true);
     
     // Process interests into arrays and append skills
+    const normalizedSkills = [...new Set(knownSkills.map(normalizeSkill))];
     const payload = {
       ...formData,
-      known_skills: knownSkills,
+      known_skills: normalizedSkills,
       interests: formData.interests.split(',').map(s => s.trim()).filter(Boolean),
       strengths: selectedStrengths.map(s => s.value).join(', '),
       weaknesses: selectedWeaknesses.map(s => s.value).join(', ')

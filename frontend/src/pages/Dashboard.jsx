@@ -4,8 +4,8 @@ import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import Select from 'react-select';
 import { LogOut, Map, ArrowRight, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle, BrainCircuit, Edit3, CheckCircle2 } from 'lucide-react';
-import { careerProfiles, inDemandCareers2026 } from '../data/careerProfiles';
-import { calculateSkillGap, generatePersonalizedRoadmap } from '../utils/skillUtils';
+import { careerProfiles } from '../data/careerProfiles';
+import { calculateSkillGap, generatePersonalizedRoadmap, normalizeSkill } from '../utils/skillUtils';
 import SkillMultiSelect from '../components/SkillMultiSelect';
 import SkillGapBadges from '../components/SkillGapBadges';
 import UpdateSkillsModal from '../components/UpdateSkillsModal';
@@ -88,7 +88,7 @@ export default function Dashboard() {
     }
   }, [user]);
 
-  const checkProfile = async () => {
+  async function checkProfile() {
     try {
       const res = await api.get('/auth/me');
       const userData = res.data;
@@ -117,14 +117,14 @@ export default function Dashboard() {
     } finally {
       setLoadingAuth(false);
     }
-  };
+  }
 
   const handleLogout = () => {
     logout();
     navigate('/login');
   };
 
-  const analyzeProfile = (profile) => {
+  function analyzeProfile(profile) {
     const rawSkills = profile.skills.map(s => typeof s === 'string' ? s : s.value);
     const rawStrengths = profile.strengths.map(s => s.value);
     const rawDomains = profile.domains.map(s => s.value);
@@ -148,7 +148,7 @@ export default function Dashboard() {
     }).sort((a,b) => b.matchPercentage - a.matchPercentage).slice(0, 3);
     
     setSuggestedCareers(suggestions);
-  };
+  }
 
   const handleBasicProfileSubmit = (e) => {
     e.preventDefault();
@@ -160,7 +160,7 @@ export default function Dashboard() {
     const normalizedForm = {
       ...basicProfileForm,
       skills: Array.isArray(basicProfileForm.skills) 
-        ? basicProfileForm.skills.map(s => typeof s === 'string' ? s : s.value)
+        ? [...new Set(basicProfileForm.skills.map(s => typeof s === 'string' ? s : s.value).map(normalizeSkill))]
         : []
     };
 
@@ -176,7 +176,8 @@ export default function Dashboard() {
   };
 
   const handleUpdateSkills = (newSkills) => {
-    const updatedProfile = { ...basicProfileForm, skills: newSkills };
+    const normalizedSkills = [...new Set(newSkills.map(normalizeSkill))];
+    const updatedProfile = { ...basicProfileForm, skills: normalizedSkills };
     setBasicProfileForm(updatedProfile);
     
     const profileKey = getProfileKey();
