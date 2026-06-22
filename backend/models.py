@@ -13,6 +13,7 @@ class UserLogin(BaseModel):
 class UserResponse(BaseModel):
     name: str
     email: EmailStr
+    recommendations: Optional[List[dict]] = None
 
 class Token(BaseModel):
     access_token: str

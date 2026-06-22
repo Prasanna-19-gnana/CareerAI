@@ -52,3 +52,11 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if user is None:
         raise HTTPException(status_code=401, detail="User not found")
     return user
+
+@router.get("/me", response_model=UserResponse)
+async def read_users_me(current_user: dict = Depends(get_current_user)):
+    return {
+        "name": current_user["name"],
+        "email": current_user["email"],
+        "recommendations": current_user.get("recommendations", None)
+    }

@@ -2,31 +2,84 @@ import React, { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { AuthContext } from '../context/AuthContext';
-import { LogOut, Map, ArrowRight, CheckCircle2, Circle, TrendingUp, DollarSign, Star } from 'lucide-react';
+import Select from 'react-select';
+import { LogOut, Map, ArrowRight, CheckCircle2, Circle, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle } from 'lucide-react';
+import { careerProfiles, inDemandCareers2026 } from '../data/careerProfiles';
+
+const basicSkillsOptions = ["Python", "Java", "SQL", "React", "Communication", "Leadership", "Excel", "Machine Learning", "UI/UX", "Cloud", "Cybersecurity", "C++", "JavaScript", "HTML/CSS", "Data Visualization", "Pandas", "Node.js", "Docker"].map(s => ({value: s, label: s}));
+const basicStrengthsOptions = ["Problem Solving", "Creativity", "Analytical Thinking", "Teamwork", "Leadership", "Communication", "Research", "Time Management", "Adaptability"].map(s => ({value: s, label: s}));
+const basicWeaknessesOptions = ["Public Speaking", "DSA", "Confidence", "Resume Building", "Interview Skills", "Practical Projects", "English Communication"].map(s => ({value: s, label: s}));
+const basicDomainsOptions = ["AI/ML", "Data Science", "Web Development", "Cybersecurity", "Cloud Computing", "UI/UX Design", "Business Analytics", "Product Management", "DevOps"].map(s => ({value: s, label: s}));
+
+const customSelectStyles = {
+  control: (base) => ({
+    ...base,
+    padding: '0.15rem',
+    borderRadius: '0.75rem',
+    border: '1px solid #e2e8f0',
+    boxShadow: 'none',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    '&:hover': { border: '1px solid #6366f1' }
+  }),
+  multiValue: (base) => ({
+    ...base,
+    backgroundColor: '#e0e7ff',
+    borderRadius: '0.375rem'
+  }),
+  multiValueLabel: (base) => ({
+    ...base,
+    color: '#4338ca',
+    fontWeight: '500'
+  })
+};
 
 export default function Dashboard() {
   const { user, logout } = useContext(AuthContext);
   const navigate = useNavigate();
+  
+  const [loadingAuth, setLoadingAuth] = useState(true);
+  const [hasCompletedAssessment, setHasCompletedAssessment] = useState(false);
   const [recommendations, setRecommendations] = useState([]);
+  
   const [selectedCareer, setSelectedCareer] = useState(null);
   const [roadmapData, setRoadmapData] = useState(null);
   const [loadingRoadmap, setLoadingRoadmap] = useState(false);
-  const [loadingAuth, setLoadingAuth] = useState(true);
+
+  // Basic Profile State
+  const [basicProfileCompleted, setBasicProfileCompleted] = useState(false);
+  const [suggestedCareers, setSuggestedCareers] = useState([]);
+  
+  const [basicProfileForm, setBasicProfileForm] = useState({
+    skills: [],
+    strengths: [],
+    weaknesses: [],
+    domains: []
+  });
 
   useEffect(() => {
-    // We would ideally fetch recommendations from DB if they exist.
-    // For MVP, if they just submitted assessment, they might want to view it.
-    // Let's create an endpoint or just prompt them to take assessment if none exist.
     checkProfile();
+    const storedProfile = localStorage.getItem('basicProfileData');
+    if (storedProfile) {
+      const parsed = JSON.parse(storedProfile);
+      setBasicProfileForm(parsed);
+      setBasicProfileCompleted(true);
+      analyzeProfile(parsed);
+    }
   }, []);
 
   const checkProfile = async () => {
     try {
-      // In a full app, we'd add an endpoint `GET /auth/me` that returns user doc including `recommendations`.
-      // Since we don't have that endpoint, let's just show a welcome and a button to take assessment.
-      setLoadingAuth(false);
+      const res = await api.get('/auth/me');
+      const userData = res.data;
+      if (userData.recommendations && userData.recommendations.length > 0) {
+        setHasCompletedAssessment(true);
+        setRecommendations(userData.recommendations);
+      } else {
+        setHasCompletedAssessment(false);
+      }
     } catch (error) {
-      console.error(error);
+      console.error("Failed to fetch user profile:", error);
+    } finally {
       setLoadingAuth(false);
     }
   };
@@ -36,7 +89,51 @@ export default function Dashboard() {
     navigate('/login');
   };
 
-  const fetchRoadmap = async (careerTitle) => {
+  const analyzeProfile = (profile) => {
+    const rawSkills = profile.skills.map(s => s.value);
+    const rawStrengths = profile.strengths.map(s => s.value);
+    const rawDomains = profile.domains.map(s => s.value);
+
+    const suggestions = careerProfiles.map(career => {
+      const skillMatch = career.requiredSkills.filter(s => rawSkills.includes(s));
+      const missingSkills = career.requiredSkills.filter(s => !rawSkills.includes(s));
+      const strengthMatch = career.relatedStrengths.filter(s => rawStrengths.includes(s));
+      
+      let score = (skillMatch.length * 2.5) + (strengthMatch.length * 1.5);
+      if (career.domains.some(d => rawDomains.includes(d))) score += 4;
+      
+      const maxPossible = (career.requiredSkills.length * 2.5) + (career.relatedStrengths.length * 1.5) + 4;
+      const matchPercentage = Math.min(Math.round((score / maxPossible) * 100) + 15, 98); 
+      
+      return {
+        ...career,
+        matchPercentage,
+        current_skills: skillMatch,
+        missing_skills: missingSkills
+      };
+    }).sort((a,b) => b.matchPercentage - a.matchPercentage).slice(0, 3);
+    
+    setSuggestedCareers(suggestions);
+  };
+
+  const handleBasicProfileSubmit = (e) => {
+    e.preventDefault();
+    if (basicProfileForm.skills.length === 0 || basicProfileForm.domains.length === 0) {
+      alert("Please select at least some skills and domains to proceed.");
+      return;
+    }
+    localStorage.setItem('basicProfileData', JSON.stringify(basicProfileForm));
+    setBasicProfileCompleted(true);
+    analyzeProfile(basicProfileForm);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleSelectCareer = (careerObj) => {
+    setSelectedCareer(careerObj.title);
+    setRoadmapData(careerObj);
+  };
+
+  const fetchAIRoadmap = async (careerTitle) => {
     setSelectedCareer(careerTitle);
     setLoadingRoadmap(true);
     try {
@@ -44,171 +141,342 @@ export default function Dashboard() {
       setRoadmapData(res.data);
     } catch (err) {
       console.error(err);
-      alert('Failed to load roadmap. Did you complete the assessment?');
+      alert('Failed to load roadmap.');
     } finally {
       setLoadingRoadmap(false);
     }
   };
 
-  if (loadingAuth) return <div className="p-8 text-center">Loading dashboard...</div>;
+  if (loadingAuth) return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
+    </div>
+  );
 
   return (
-    <div className="max-w-6xl mx-auto py-8">
+    <div className="max-w-7xl mx-auto py-8 px-4 sm:px-6 lg:px-8">
       
       {/* Header */}
-      <div className="flex justify-between items-center mb-8 bg-white/70 backdrop-blur-md p-4 rounded-2xl border border-white/50 shadow-sm">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Hello, {user?.name} 👋</h1>
-          <p className="text-slate-500 text-sm">Welcome to your AI Career Dashboard</p>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-8 bg-white/70 backdrop-blur-md p-6 rounded-2xl border border-white/50 shadow-sm">
+        <div className="mb-4 sm:mb-0">
+          <h1 className="text-3xl font-bold text-slate-800">Hello, {user?.name} 👋</h1>
+          <p className="text-slate-500 mt-1">Welcome to your AI Career Dashboard</p>
         </div>
-        <div className="flex space-x-4">
-          <button 
-            onClick={() => navigate('/assessment')}
-            className="px-4 py-2 bg-indigo-100 text-indigo-700 rounded-xl font-medium hover:bg-indigo-200 transition"
-          >
-            Take Assessment
-          </button>
+        <div className="flex items-center space-x-4">
+          {basicProfileCompleted && !hasCompletedAssessment && (
+            <button 
+              onClick={() => navigate('/assessment')}
+              className="px-6 py-2.5 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium shadow-md hover:-translate-y-0.5 transition flex items-center"
+            >
+              <BrainCircuit size={18} className="mr-2"/> Take Full AI Assessment
+            </button>
+          )}
           <button 
             onClick={handleLogout}
-            className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition"
+            className="p-2.5 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition"
+            title="Log out"
           >
-            <LogOut size={20} />
+            <LogOut size={22} />
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         
-        {/* Left Column: Recommendations */}
-        <div className="lg:col-span-1 space-y-4">
-          <h2 className="text-xl font-bold text-slate-800 flex items-center">
-            <Star className="text-yellow-500 mr-2" size={20}/> Your Top Matches
-          </h2>
+        {/* Left Column: Listings & Flow */}
+        <div className="lg:col-span-5 space-y-6">
           
-          <div className="p-6 bg-white/60 backdrop-blur-xl rounded-2xl border border-white/50 shadow-md">
-            <p className="text-slate-600 mb-4 text-sm">
-              We recommend taking the AI career assessment to get personalized career matches.
-            </p>
-            <button 
-              onClick={() => navigate('/assessment')}
-              className="w-full py-3 bg-gradient-to-r from-indigo-500 to-purple-600 text-white rounded-xl font-medium shadow-md hover:-translate-y-0.5 transition"
-            >
-              Start Assessment
-            </button>
-          </div>
-
-          {/* Dummy Recommendations for visual purposes if no API data yet */}
-          <div className="space-y-4">
-            {['Data Scientist', 'AI/ML Engineer'].map((career, idx) => (
-              <div 
-                key={idx}
-                onClick={() => fetchRoadmap(career)}
-                className={`p-5 rounded-2xl cursor-pointer transition-all border ${selectedCareer === career ? 'bg-indigo-50 border-indigo-200 shadow-md ring-2 ring-indigo-500 ring-opacity-50' : 'bg-white/60 border-white/50 hover:bg-white/80 shadow-sm'}`}
-              >
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="font-bold text-slate-800">{career}</h3>
-                  <span className="bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">
-                    {95 - idx * 5}% Match
-                  </span>
-                </div>
-                <div className="flex items-center text-xs text-slate-500 mb-3 space-x-3">
-                  <span className="flex items-center"><DollarSign size={12} className="mr-1"/> $80k-$120k</span>
-                  <span className="flex items-center"><TrendingUp size={12} className="mr-1"/> High Demand</span>
-                </div>
-                <button className="text-sm text-indigo-600 font-medium flex items-center">
-                  View Roadmap <ArrowRight size={14} className="ml-1"/>
-                </button>
+          {/* FLOW 1: Basic Profile Form */}
+          {!basicProfileCompleted && !hasCompletedAssessment && (
+            <div className="bg-white/70 backdrop-blur-md p-6 sm:p-8 rounded-3xl border border-white/50 shadow-lg">
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold text-slate-800 flex items-center mb-2">
+                  <Target className="text-indigo-500 mr-2" size={24}/> Basic Career Profile
+                </h2>
+                <p className="text-slate-500 text-sm">Tell us a little bit about yourself to get instant, skill-based career directions before taking the deep AI assessment.</p>
               </div>
-            ))}
-          </div>
-        </div>
 
-        {/* Right Column: Roadmap & Skill Gap */}
-        <div className="lg:col-span-2">
-          {loadingRoadmap ? (
-            <div className="h-full flex items-center justify-center bg-white/50 backdrop-blur-xl rounded-3xl border border-white/50 shadow-lg min-h-[400px]">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-                <p className="text-slate-600">AI is generating your custom learning path...</p>
-              </div>
-            </div>
-          ) : roadmapData ? (
-            <div className="bg-white/70 backdrop-blur-xl p-8 rounded-3xl border border-white/50 shadow-xl">
-              <div className="flex items-center space-x-3 mb-6 pb-6 border-b border-slate-200">
-                <div className="p-3 bg-indigo-100 text-indigo-600 rounded-xl">
-                  <Map size={24} />
+              <form onSubmit={handleBasicProfileSubmit} className="space-y-5">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Known Skills</label>
+                  <Select 
+                    isMulti options={basicSkillsOptions} styles={customSelectStyles} placeholder="Search skills (e.g. Python, React)..."
+                    value={basicProfileForm.skills} onChange={(val) => setBasicProfileForm({...basicProfileForm, skills: val})}
+                  />
                 </div>
                 <div>
-                  <h2 className="text-2xl font-bold text-slate-800">{selectedCareer} Roadmap</h2>
-                  <p className="text-slate-500">Your personalized step-by-step guide</p>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Strengths</label>
+                  <Select 
+                    isMulti options={basicStrengthsOptions} styles={customSelectStyles} placeholder="Select strengths..."
+                    value={basicProfileForm.strengths} onChange={(val) => setBasicProfileForm({...basicProfileForm, strengths: val})}
+                  />
                 </div>
-              </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Areas to Improve (Weaknesses)</label>
+                  <Select 
+                    isMulti options={basicWeaknessesOptions} styles={customSelectStyles} placeholder="Select weaknesses..."
+                    value={basicProfileForm.weaknesses} onChange={(val) => setBasicProfileForm({...basicProfileForm, weaknesses: val})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Interested Domains</label>
+                  <Select 
+                    isMulti options={basicDomainsOptions} styles={customSelectStyles} placeholder="Select domains..."
+                    value={basicProfileForm.domains} onChange={(val) => setBasicProfileForm({...basicProfileForm, domains: val})}
+                  />
+                </div>
+                
+                <button 
+                  type="submit"
+                  className="w-full mt-4 py-3.5 bg-gradient-to-r from-indigo-600 to-indigo-700 text-white rounded-xl font-bold shadow-md hover:-translate-y-0.5 hover:shadow-lg transition flex items-center justify-center"
+                >
+                  <Zap size={18} className="mr-2"/> Analyze My Profile
+                </button>
+              </form>
+            </div>
+          )}
 
-              {/* Skill Gap */}
-              <div className="grid grid-cols-2 gap-6 mb-8">
-                <div className="p-5 bg-green-50 rounded-2xl border border-green-100">
-                  <h4 className="font-bold text-green-800 mb-3 flex items-center">
-                    <CheckCircle2 size={16} className="mr-2"/> You Already Know
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {roadmapData.current_skills?.map((skill, i) => (
-                      <span key={i} className="px-3 py-1 bg-green-200 text-green-800 rounded-lg text-sm">{skill}</span>
-                    ))}
-                  </div>
-                </div>
-                <div className="p-5 bg-orange-50 rounded-2xl border border-orange-100">
-                  <h4 className="font-bold text-orange-800 mb-3 flex items-center">
-                    <Circle size={16} className="mr-2 text-orange-500"/> Skills to Learn
-                  </h4>
-                  <div className="flex flex-wrap gap-2">
-                    {roadmapData.missing_skills?.map((skill, i) => (
-                      <span key={i} className="px-3 py-1 bg-orange-200 text-orange-800 rounded-lg text-sm">{skill}</span>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* Timeline */}
-              <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-indigo-500 before:to-purple-500">
-                {roadmapData.roadmap?.map((step, i) => (
-                  <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                    <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-indigo-500 text-white shadow shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 font-bold text-sm">
-                      {i+1}
-                    </div>
-                    <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-5 rounded-2xl bg-white shadow-md border border-slate-100 transition duration-300 hover:shadow-lg">
-                      <div className="flex items-center justify-between mb-2">
-                        <h4 className="font-bold text-slate-800 text-lg">{step.month}</h4>
+          {/* FLOW 2: Skill-Based Suggestions (Pre-Assessment) */}
+          {basicProfileCompleted && !hasCompletedAssessment && (
+            <>
+              <div>
+                <h2 className="text-xl font-bold text-slate-800 flex items-center mb-4">
+                  <Star className="text-indigo-500 mr-2" size={24}/> Recommended Directions
+                </h2>
+                <div className="space-y-4">
+                  {suggestedCareers.map((career, idx) => (
+                    <div 
+                      key={idx}
+                      onClick={() => handleSelectCareer(career)}
+                      className={`p-5 rounded-2xl cursor-pointer transition-all border ${selectedCareer === career.title ? 'bg-indigo-50 border-indigo-200 shadow-md ring-2 ring-indigo-500 ring-opacity-50' : 'bg-white/60 border-white/50 hover:bg-white/80 shadow-sm'}`}
+                    >
+                      <div className="flex justify-between items-start mb-2">
+                        <h3 className="font-bold text-slate-800 text-lg">{career.title}</h3>
+                        <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2.5 py-1 rounded-full">
+                          {career.matchPercentage}% Match
+                        </span>
                       </div>
-                      <p className="text-slate-600 text-sm mb-3 font-medium text-indigo-600">{step.focus}</p>
-                      <ul className="space-y-1.5">
-                        {step.tasks?.map((task, j) => (
-                          <li key={j} className="text-slate-500 text-sm flex items-start">
-                            <span className="text-indigo-400 mr-2">•</span> {task}
-                          </li>
+                      
+                      {/* Match Reason */}
+                      <p className="text-sm text-slate-600 mb-3">
+                        Recommended because you have <strong>{career.current_skills.length} matching skills</strong> and share core strengths like {career.relatedStrengths.slice(0,2).join(' & ')}.
+                      </p>
+
+                      <div className="flex flex-wrap gap-1.5 mb-4">
+                        {career.missing_skills.slice(0,3).map((ms, i) => (
+                          <span key={i} className="text-[10px] font-medium bg-rose-50 text-rose-600 border border-rose-100 px-2 py-0.5 rounded">Miss: {ms}</span>
                         ))}
-                      </ul>
+                      </div>
+
+                      <button className="text-sm text-indigo-600 font-bold flex items-center hover:text-indigo-800 transition">
+                        View Roadmap <ArrowRight size={16} className="ml-1"/>
+                      </button>
                     </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Where You Should Improve Section */}
+              <div className="p-6 bg-slate-50/80 backdrop-blur-md rounded-2xl border border-slate-200 shadow-sm mt-6">
+                <h3 className="font-bold text-slate-800 mb-4 flex items-center">
+                  <AlertCircle className="text-orange-500 mr-2" size={20}/> Where You Should Improve
+                </h3>
+                <div className="space-y-5">
+                  {suggestedCareers.map((career, idx) => (
+                    <div key={idx} className="border-b border-slate-200 pb-4 last:border-0 last:pb-0">
+                      <p className="font-semibold text-slate-700 text-sm mb-2">{career.title}</p>
+                      
+                      <div className="flex flex-col space-y-2 text-xs">
+                        <div className="flex items-start">
+                          <span className="font-medium w-20 text-slate-500 shrink-0">Current:</span>
+                          <span className="text-green-600 font-medium">{career.current_skills.join(', ') || 'None yet'}</span>
+                        </div>
+                        <div className="flex items-start">
+                          <span className="font-medium w-20 text-slate-500 shrink-0">Missing:</span>
+                          <span className="text-rose-500 font-medium">{career.missing_skills.join(', ')}</span>
+                        </div>
+                        <div className="flex items-start mt-1 bg-white p-2 rounded-lg border border-slate-100 shadow-sm">
+                          <span className="font-medium text-slate-500 mr-2">Tip:</span>
+                          <span className="text-slate-600">Start by learning {career.missing_skills.slice(0,2).join(' and ')}, then build a simple project to gain confidence.</span>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Trending Careers Fallback */}
+              <div className="pt-4">
+                <h2 className="text-lg font-bold text-slate-800 flex items-center mb-4">
+                  <Flame className="text-orange-500 mr-2" size={18}/> Or Explore Trending Roadmaps
+                </h2>
+                <div className="space-y-3">
+                  {careerProfiles.slice(0,4).map((career, idx) => (
+                    <div 
+                      key={idx} onClick={() => handleSelectCareer(career)}
+                      className="p-4 bg-white/50 border border-white/50 hover:bg-white/80 rounded-xl cursor-pointer transition shadow-sm flex justify-between items-center"
+                    >
+                      <div>
+                        <h4 className="font-bold text-slate-700 text-sm">{career.title}</h4>
+                        <span className="text-xs text-slate-500">{career.demand}</span>
+                      </div>
+                      <ArrowRight size={16} className="text-slate-400"/>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* FLOW 3: Post-Assessment AI Matches */}
+          {hasCompletedAssessment && (
+            <>
+              <h2 className="text-xl font-bold text-slate-800 flex items-center mb-4">
+                <Star className="text-yellow-500 mr-2" size={24}/> Your Top AI Matches
+              </h2>
+              
+              <div className="space-y-4 max-h-[800px] overflow-y-auto pr-2 custom-scrollbar">
+                {recommendations.map((career, idx) => (
+                  <div 
+                    key={idx}
+                    onClick={() => fetchAIRoadmap(career.title)}
+                    className={`p-5 rounded-2xl cursor-pointer transition-all border ${selectedCareer === career.title ? 'bg-indigo-50 border-indigo-200 shadow-md ring-2 ring-indigo-500 ring-opacity-50' : 'bg-white/60 border-white/50 hover:bg-white/80 shadow-sm'}`}
+                  >
+                    <div className="flex justify-between items-start mb-2">
+                      <h3 className="font-bold text-slate-800 text-lg leading-tight">{career.title}</h3>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full ${idx === 0 ? 'bg-green-100 text-green-700' : idx === 1 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
+                        {career.match_percentage}% Match
+                      </span>
+                    </div>
+                    <p className="text-sm text-slate-600 mb-4 line-clamp-2">{career.reason}</p>
+                    <div className="flex items-center text-xs font-medium text-slate-500 mb-4 space-x-3">
+                      <span className="flex items-center text-green-600 bg-green-50 px-2 py-1 rounded-md"><DollarSign size={14} className="mr-0.5"/> {career.salary_range}</span>
+                      <span className="flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded-md"><TrendingUp size={14} className="mr-1"/> {career.future_demand}</span>
+                    </div>
+                    <button className="text-sm text-indigo-600 font-medium flex items-center hover:text-indigo-800 transition">
+                      View Personalized Roadmap <ArrowRight size={16} className="ml-1"/>
+                    </button>
                   </div>
                 ))}
               </div>
+            </>
+          )}
 
-              {roadmapData.recommendations && (
-                <div className="mt-10 p-5 bg-gradient-to-r from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100">
-                  <h4 className="font-bold text-indigo-900 mb-2">Extra Recommendations</h4>
-                  <ul className="list-disc pl-5 text-indigo-800 text-sm space-y-1">
-                    {roadmapData.recommendations.map((rec, i) => <li key={i}>{rec}</li>)}
-                  </ul>
+        </div>
+
+        {/* Right Column: Roadmap Panel */}
+        <div className="lg:col-span-7">
+          {loadingRoadmap ? (
+            <div className="h-full flex flex-col items-center justify-center bg-white/50 backdrop-blur-xl rounded-3xl border border-white/50 shadow-lg min-h-[500px]">
+              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
+              <p className="text-slate-600 font-medium">AI is generating your custom learning path...</p>
+              <p className="text-slate-400 text-sm mt-2">Analyzing your skill gaps and finding the best resources.</p>
+            </div>
+          ) : roadmapData ? (
+            <div className="bg-white/80 backdrop-blur-xl p-6 sm:p-8 rounded-3xl border border-white/50 shadow-xl h-full relative overflow-hidden">
+              <div className="absolute top-0 right-0 -mr-16 -mt-16 w-64 h-64 bg-gradient-to-br from-indigo-100 to-purple-100 rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+
+              <div className="flex flex-col sm:flex-row items-start sm:items-center space-y-4 sm:space-y-0 sm:space-x-4 mb-8 pb-6 border-b border-slate-200 relative z-10">
+                <div className="p-4 bg-indigo-100 text-indigo-600 rounded-2xl shadow-inner">
+                  <Briefcase size={28} />
                 </div>
-              )}
+                <div>
+                  <h2 className="text-2xl sm:text-3xl font-bold text-slate-800">{roadmapData.title || selectedCareer}</h2>
+                  <p className="text-slate-500 font-medium mt-1">
+                    {hasCompletedAssessment ? "Your Personalized AI Roadmap" : "Skill-Based Career Roadmap"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="relative z-10">
+                {/* Description */}
+                {roadmapData.description && (
+                  <p className="text-slate-600 mb-8 leading-relaxed">
+                    {roadmapData.description}
+                  </p>
+                )}
+
+                {/* Skill Gap Analysis */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-10">
+                  {roadmapData.current_skills && roadmapData.current_skills.length > 0 && (
+                    <div className="p-5 bg-gradient-to-br from-emerald-50 to-green-50 rounded-2xl border border-green-100 shadow-sm">
+                      <h4 className="font-bold text-green-800 mb-3 flex items-center">
+                        <CheckCircle2 size={18} className="mr-2"/> Skills You Have
+                      </h4>
+                      <div className="flex flex-wrap gap-2">
+                        {roadmapData.current_skills.map((skill, i) => (
+                          <span key={i} className="px-3 py-1 bg-white text-green-700 border border-green-200 rounded-lg text-sm font-medium shadow-sm">{skill}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  <div className={`p-5 bg-gradient-to-br from-orange-50 to-rose-50 rounded-2xl border border-orange-100 shadow-sm ${(!roadmapData.current_skills || roadmapData.current_skills.length === 0) ? 'sm:col-span-2' : ''}`}>
+                    <h4 className="font-bold text-rose-800 mb-3 flex items-center">
+                      <Circle size={18} className="mr-2 text-rose-500"/> Skills to Learn
+                    </h4>
+                    <div className="flex flex-wrap gap-2">
+                      {roadmapData.missing_skills?.map((skill, i) => (
+                        <span key={i} className="px-3 py-1 bg-white text-rose-700 border border-rose-200 rounded-lg text-sm font-medium shadow-sm">{skill}</span>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <h3 className="text-xl font-bold text-slate-800 mb-6">Learning Roadmap</h3>
+
+                {/* Timeline */}
+                <div className="space-y-6 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-indigo-400 before:to-purple-400">
+                  {roadmapData.roadmap?.map((step, i) => (
+                    <div key={i} className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
+                      <div className="flex items-center justify-center w-10 h-10 rounded-full border-4 border-white bg-gradient-to-br from-indigo-500 to-purple-600 text-white shadow-md shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10 font-bold text-sm">
+                        {i+1}
+                      </div>
+                      <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-5 rounded-2xl bg-white shadow-sm border border-slate-100 transition duration-300 hover:shadow-md hover:border-indigo-100 group-hover:-translate-y-1">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="font-bold text-slate-800">{step.month}</h4>
+                        </div>
+                        <p className="text-slate-700 text-sm mb-3 font-semibold text-indigo-600">{step.focus}</p>
+                        <ul className="space-y-2">
+                          {step.tasks?.map((task, j) => (
+                            <li key={j} className="text-slate-600 text-sm flex items-start">
+                              <ArrowRight size={14} className="text-indigo-400 mr-2 mt-0.5 shrink-0"/> 
+                              <span>{task}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {roadmapData.recommendations && roadmapData.recommendations.length > 0 && (
+                  <div className="mt-12 p-6 bg-gradient-to-br from-indigo-50 to-purple-50 rounded-2xl border border-indigo-100 shadow-inner">
+                    <h4 className="font-bold text-indigo-900 mb-4 flex items-center">
+                      <Star size={18} className="mr-2"/> Recommended Resources & Next Steps
+                    </h4>
+                    <ul className="space-y-3">
+                      {roadmapData.recommendations.map((rec, i) => (
+                        <li key={i} className="flex items-start bg-white/60 p-3 rounded-xl border border-indigo-50">
+                          <CheckCircle2 size={16} className="text-indigo-500 mr-3 mt-0.5 shrink-0"/>
+                          <span className="text-indigo-900 text-sm font-medium">{rec}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
 
             </div>
           ) : (
-            <div className="h-full flex items-center justify-center bg-white/40 backdrop-blur-md rounded-3xl border border-white/50 border-dashed min-h-[400px]">
-              <div className="text-center max-w-sm">
-                <Map size={48} className="mx-auto text-slate-300 mb-4" />
-                <h3 className="text-xl font-bold text-slate-700 mb-2">Select a Career Path</h3>
-                <p className="text-slate-500 text-sm">Click on any recommended career on the left to generate your personalized learning roadmap.</p>
+            <div className="h-full flex flex-col items-center justify-center bg-white/40 backdrop-blur-md rounded-3xl border border-white/50 border-dashed min-h-[500px]">
+              <div className="p-6 bg-white/50 rounded-full mb-6 shadow-sm">
+                <Map size={56} className="text-indigo-300" />
               </div>
+              <h3 className="text-2xl font-bold text-slate-700 mb-2">Select a Career Path</h3>
+              <p className="text-slate-500 text-center max-w-sm">
+                Complete your profile or select a career on the left to view its detailed roadmap.
+              </p>
             </div>
           )}
         </div>
