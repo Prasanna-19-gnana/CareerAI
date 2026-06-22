@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import api from '../api';
 import { AuthContext } from '../context/AuthContext';
 import Select from 'react-select';
-import { LogOut, Map, ArrowRight, CheckCircle2, Circle, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle } from 'lucide-react';
+import { LogOut, Map, ArrowRight, CheckCircle2, Circle, TrendingUp, DollarSign, Star, Flame, BarChart3, Briefcase, Target, Zap, AlertCircle, BrainCircuit } from 'lucide-react';
 import { careerProfiles, inDemandCareers2026 } from '../data/careerProfiles';
 
 const basicSkillsOptions = ["Python", "Java", "SQL", "React", "Communication", "Leadership", "Excel", "Machine Learning", "UI/UX", "Cloud", "Cybersecurity", "C++", "JavaScript", "HTML/CSS", "Data Visualization", "Pandas", "Node.js", "Docker"].map(s => ({value: s, label: s}));
