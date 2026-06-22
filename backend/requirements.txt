@@ -6,6 +6,6 @@ google-generativeai
 python-dotenv
 passlib[bcrypt]
 python-jose[cryptography]
-pydantic
+pydantic[email]
 pydantic-settings
 bcrypt<4.0.0
